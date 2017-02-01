@@ -2386,7 +2386,8 @@ bool idUsage::isValid<SpvOpReturnValue>(const spv_instruction_t* inst,
     return false;
   }
   if (addressingModel == SpvAddressingModelLogical &&
-      SpvOpTypePointer == valueType->opcode()) {
+      SpvOpTypePointer == valueType->opcode() &&
+      !module_.HasExtension("SPV_KHR_variable_pointers")) {
     DIAG(valueIndex)
         << "OpReturnValue value's type <id> '" << value->type_id()
         << "' is a pointer, which is invalid in the Logical addressing model.";

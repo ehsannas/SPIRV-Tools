@@ -290,6 +290,17 @@ class ValidationState_t {
   bool IsStructTypeWithBuiltInMember(uint32_t id) const {
     return (builtin_structs_.find(id) != builtin_structs_.end());
   }
+
+  /// Adds the extension name to the list of extensions used by this module.
+  void RegisterExtension(const std::string& ext_name) {
+    extensions_.insert(ext_name);
+  }
+
+  /// Returns true if the module uses the given extension.
+  bool HasExtension(const std::string& ext_name) const {
+    return (extensions_.find(ext_name) != extensions_.end());
+  }
+
  private:
   ValidationState_t(const ValidationState_t&);
 
@@ -353,6 +364,9 @@ class ValidationState_t {
 
   /// Stores the list of decorations for a given <id>
   std::unordered_map<uint32_t, std::vector<Decoration>> id_decorations_;
+
+  /// Stores all of the extension names that are used by the current module.
+  std::unordered_set<std::string> extensions_;
 
   AssemblyGrammar grammar_;
 

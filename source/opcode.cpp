@@ -219,6 +219,26 @@ int32_t spvOpcodeIsComposite(const SpvOp opcode) {
   }
 }
 
+int32_t spvOpcodeReturnsLogicalVariablePointer(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpVariable:
+    case SpvOpAccessChain:
+    case SpvOpInBoundsAccessChain:
+    case SpvOpFunctionParameter:
+    case SpvOpImageTexelPointer:
+    case SpvOpCopyObject:
+    case SpvOpSelect:
+    case SpvOpPhi:
+    case SpvOpFunctionCall:
+    case SpvOpPtrAccessChain:
+    case SpvOpLoad:
+    case SpvOpConstantNull:
+      return true;
+    default:
+      return false;
+  }
+}
+
 int32_t spvOpcodeReturnsLogicalPointer(const SpvOp opcode) {
   switch (opcode) {
     case SpvOpVariable:

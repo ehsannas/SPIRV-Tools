@@ -1094,9 +1094,14 @@ bool idUsage::isValid<SpvOpLoad>(const spv_instruction_t* inst,
     return false;
   }
   auto pointerIndex = 3;
+  const std::string var_ptr_ext = "SPV_KHR_variable_pointers";
   auto pointer = module_.FindDef(inst->words[pointerIndex]);
-  if (!pointer || (addressingModel == SpvAddressingModelLogical &&
-                   !spvOpcodeReturnsLogicalPointer(pointer->opcode()))) {
+  if (!pointer ||
+      (addressingModel == SpvAddressingModelLogical &&
+       ((!module_.HasExtension(var_ptr_ext) &&
+         !spvOpcodeReturnsLogicalPointer(pointer->opcode())) ||
+        (module_.HasExtension(var_ptr_ext) &&
+         !spvOpcodeReturnsLogicalVariablePointer(pointer->opcode()))))) {
     DIAG(pointerIndex) << "OpLoad Pointer <id> '" << inst->words[pointerIndex]
                        << "' is not a pointer.";
     return false;

@@ -309,9 +309,14 @@ spv_result_t RegisterDecorations(ValidationState_t& _,
 spv_result_t InstructionPass(ValidationState_t& _,
                              const spv_parsed_instruction_t* inst) {
   const SpvOp opcode = static_cast<SpvOp>(inst->opcode);
-  if (opcode == SpvOpCapability)
+  if (opcode == SpvOpCapability) {
     _.RegisterCapability(
         static_cast<SpvCapability>(inst->words[inst->operands[0].offset]));
+  }
+  if (opcode == SpvOpExtension) {
+    _.RegisterExtension(
+        reinterpret_cast<const char*>(inst->words + inst->operands[0].offset));
+  }
   if (opcode == SpvOpMemoryModel) {
     _.set_addressing_model(
         static_cast<SpvAddressingModel>(inst->words[inst->operands[0].offset]));

@@ -37,7 +37,7 @@ class IRContext;
 class Module;
 class InstructionList;
 
-// Relaxed logcial addressing:
+// Relaxed logical addressing:
 //
 // In the logical addressing model, pointers cannot be stored or loaded.  This
 // is a useful assumption because it simplifies the aliasing significantly.

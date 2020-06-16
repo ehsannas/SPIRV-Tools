@@ -269,5 +269,14 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
   return id;
 }
 
+/// NOTES:
+///
+/// Additional candidates are: global structures that contain only resources
+/// We are looking for global OpVariables with storage class of Uniform or UniformConstant
+/// e.g. _ptr_UniformConstant_S, where the underlying type (S) must be a structure or array of structures.
+/// AND
+/// inside the structure, you must have resources and/or array of resources.
+/// A resource is: OpTypeImage, OpTypeSampler, or OpTypeStruct { OpTypeRuntimeArray { X } }
+
 }  // namespace opt
 }  // namespace spvtools

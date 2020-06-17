@@ -27,9 +27,12 @@ Pass::Status DescriptorScalarReplacement::Process() {
   for (Instruction& var : context()->types_values()) {
     if (IsCandidate(&var)) {
       modified = true;
+      printf("Going to replace candidate with id %d\n", var.result_id());
       if (!ReplaceCandidate(&var)) {
         return Status::Failure;
       }
+      printf("replacement done.\n");
+      printf("adding variable with id %d to var_to_kill list\n", var.result_id());
       vars_to_kill.push_back(&var);
     }
   }
@@ -56,7 +59,8 @@ bool DescriptorScalarReplacement::IsCandidate(Instruction* var) {
   uint32_t var_type_id = ptr_type_inst->GetSingleWordInOperand(1);
   Instruction* var_type_inst =
       context()->get_def_use_mgr()->GetDef(var_type_id);
-  if (var_type_inst->opcode() != SpvOpTypeArray) {
+  if (var_type_inst->opcode() != SpvOpTypeArray &&
+      var_type_inst->opcode() != SpvOpTypeStruct) {
     return false;
   }
 
@@ -80,6 +84,7 @@ bool DescriptorScalarReplacement::IsCandidate(Instruction* var) {
     return false;
   }
 
+  printf("variable with id %d is a candidate\n", var->result_id());
   return true;
 }
 
@@ -87,6 +92,7 @@ bool DescriptorScalarReplacement::ReplaceCandidate(Instruction* var) {
   std::vector<Instruction*> work_list;
   bool failed = !get_def_use_mgr()->WhileEachUser(
       var->result_id(), [this, &work_list](Instruction* use) {
+        printf("found usage of variable. use id %d\n", use->result_id());
         if (use->opcode() == SpvOpName) {
           return true;
         }
@@ -98,6 +104,7 @@ bool DescriptorScalarReplacement::ReplaceCandidate(Instruction* var) {
         switch (use->opcode()) {
           case SpvOpAccessChain:
           case SpvOpInBoundsAccessChain:
+            printf("adding use id %d to work_list\n", use->result_id());
             work_list.push_back(use);
             return true;
           default:
@@ -112,6 +119,7 @@ bool DescriptorScalarReplacement::ReplaceCandidate(Instruction* var) {
     return false;
   }
 
+  printf("work_list size is %d\n", static_cast<uint32_t>(work_list.size()));
   for (Instruction* use : work_list) {
     if (!ReplaceAccessChain(var, use)) {
       return false;
@@ -122,6 +130,7 @@ bool DescriptorScalarReplacement::ReplaceCandidate(Instruction* var) {
 
 bool DescriptorScalarReplacement::ReplaceAccessChain(Instruction* var,
                                                      Instruction* use) {
+  printf("in ReplaceAccessChain for var %d and use %d\n", var->result_id(), use->result_id());
   if (use->NumInOperands() <= 1) {
     context()->EmitErrorMessage(
         "Variable cannot be replaced: invalid instruction", use);
@@ -172,26 +181,47 @@ bool DescriptorScalarReplacement::ReplaceAccessChain(Instruction* var,
 
 uint32_t DescriptorScalarReplacement::GetReplacementVariable(Instruction* var,
                                                              uint32_t idx) {
+  printf("in GetReplacementVariable for var %d and idx %d\n", var->result_id(), idx);
   auto replacement_vars = replacement_variables_.find(var);
   if (replacement_vars == replacement_variables_.end()) {
+    printf("replacement_variables_[var %d] did not exist\n", var->result_id());
     uint32_t ptr_type_id = var->type_id();
     Instruction* ptr_type_inst = get_def_use_mgr()->GetDef(ptr_type_id);
     assert(ptr_type_inst->opcode() == SpvOpTypePointer &&
-           "Variable should be a pointer to an array.");
-    uint32_t arr_type_id = ptr_type_inst->GetSingleWordInOperand(1);
-    Instruction* arr_type_inst = get_def_use_mgr()->GetDef(arr_type_id);
-    assert(arr_type_inst->opcode() == SpvOpTypeArray &&
-           "Variable should be a pointer to an array.");
+           "Variable should be a pointer to an array or structure.");
+    uint32_t pointee_type_id = ptr_type_inst->GetSingleWordInOperand(1);
+    Instruction* pointee_type_inst = get_def_use_mgr()->GetDef(pointee_type_id);
+    const bool is_array = pointee_type_inst->opcode() == SpvOpTypeArray;
+    const bool is_struct = pointee_type_inst->opcode() == SpvOpTypeStruct;
+    assert((is_array || is_struct) &&
+           "Variable should be a pointer to an array or structure.");
 
-    uint32_t array_len_id = arr_type_inst->GetSingleWordInOperand(1);
-    const analysis::Constant* array_len_const =
-        context()->get_constant_mgr()->FindDeclaredConstant(array_len_id);
-    assert(array_len_const != nullptr && "Array length must be a constant.");
-    uint32_t array_len = array_len_const->GetU32();
+    printf("var %d is a %s\n", var->result_id(), is_array ? "array" : "struct");
 
-    replacement_vars = replacement_variables_
-                           .insert({var, std::vector<uint32_t>(array_len, 0)})
-                           .first;
+    // For arrays, each array element should be replaced with a new replacement
+    // variable
+    if (is_array) {
+      uint32_t array_len_id = pointee_type_inst->GetSingleWordInOperand(1);
+      const analysis::Constant* array_len_const =
+          context()->get_constant_mgr()->FindDeclaredConstant(array_len_id);
+      assert(array_len_const != nullptr && "Array length must be a constant.");
+      uint32_t array_len = array_len_const->GetU32();
+
+      replacement_vars = replacement_variables_
+                             .insert({var, std::vector<uint32_t>(array_len, 0)})
+                             .first;
+      printf("created replacement_variables_[var] with length %d\n", array_len);
+    }
+    // For structures, each member should be replaced with a new replacement
+    // variable
+    if (is_struct) {
+      const uint32_t num_members = pointee_type_inst->NumInOperands();
+      replacement_vars =
+          replacement_variables_
+              .insert({var, std::vector<uint32_t>(num_members, 0)})
+              .first;
+      printf("created replacement_variables_[var] with length %d\n", num_members);
+    }
   }
 
   if (replacement_vars->second[idx] == 0) {
@@ -203,6 +233,7 @@ uint32_t DescriptorScalarReplacement::GetReplacementVariable(Instruction* var,
 
 uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
     Instruction* var, uint32_t idx) {
+  printf("in CreateReplacementVariable for var %d and idx %d\n", var->result_id(), idx);
   // The storage class for the new variable is the same as the original.
   SpvStorageClass storage_class =
       static_cast<SpvStorageClass>(var->GetSingleWordInOperand(0));
@@ -213,17 +244,23 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
   Instruction* ptr_type_inst = get_def_use_mgr()->GetDef(ptr_type_id);
   assert(ptr_type_inst->opcode() == SpvOpTypePointer &&
          "Variable should be a pointer to an array.");
-  uint32_t arr_type_id = ptr_type_inst->GetSingleWordInOperand(1);
-  Instruction* arr_type_inst = get_def_use_mgr()->GetDef(arr_type_id);
-  assert(arr_type_inst->opcode() == SpvOpTypeArray &&
-         "Variable should be a pointer to an array.");
-  uint32_t element_type_id = arr_type_inst->GetSingleWordInOperand(0);
+  uint32_t pointee_type_id = ptr_type_inst->GetSingleWordInOperand(1);
+  Instruction* pointee_type_inst = get_def_use_mgr()->GetDef(pointee_type_id);
+  const bool is_array = pointee_type_inst->opcode() == SpvOpTypeArray;
+  const bool is_struct = pointee_type_inst->opcode() == SpvOpTypeStruct;
+  assert((is_array || is_struct) &&
+         "Variable should be a pointer to an array or structure.");
+
+  uint32_t element_type_id =
+      is_array ? pointee_type_inst->GetSingleWordInOperand(0)
+               : pointee_type_inst->GetSingleWordInOperand(idx);
 
   uint32_t ptr_element_type_id = context()->get_type_mgr()->FindPointerToType(
       element_type_id, storage_class);
 
   // Create the variable.
   uint32_t id = TakeNextId();
+  printf("created a NEW variable with id %d\n", id);
   std::unique_ptr<Instruction> variable(
       new Instruction(context(), SpvOpVariable, ptr_element_type_id, id,
                       std::initializer_list<Operand>{
@@ -235,26 +272,40 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
   // the Binding decoration needs to be adjusted.
   for (auto old_decoration :
        get_decoration_mgr()->GetDecorationsFor(var->result_id(), true)) {
+
     assert(old_decoration->opcode() == SpvOpDecorate);
     std::unique_ptr<Instruction> new_decoration(
         old_decoration->Clone(context()));
     new_decoration->SetInOperand(0, {id});
+    printf("copying decorations to new var (id %d)\n", id);
 
     uint32_t decoration = new_decoration->GetSingleWordInOperand(1u);
     if (decoration == SpvDecorationBinding) {
-      uint32_t new_binding = new_decoration->GetSingleWordInOperand(2) + idx;
+      uint32_t new_binding = new_decoration->GetSingleWordInOperand(2) +
+                             idx * GetNumBindingsUsedByType(ptr_element_type_id);
       new_decoration->SetInOperand(2, {new_binding});
+      printf("\t new binding for new var (id %d) is: %d\n", id, new_binding);
     }
     context()->AddAnnotationInst(std::move(new_decoration));
   }
 
   // Create a new OpName for the replacement variable.
   for (auto p : context()->GetNames(var->result_id())) {
+    printf("Found names for var %d\n", var->result_id());
     Instruction* name_inst = p.second;
     std::string name_str = utils::MakeString(name_inst->GetOperand(1).words);
-    name_str += "[";
-    name_str += utils::ToString(idx);
-    name_str += "]";
+    printf("\t name: %s\n", name_str.c_str());
+    if (is_array) {
+      name_str += "[" + utils::ToString(idx) + "]";
+    }
+    if (is_struct) {
+      Instruction* member_name_inst =
+          context()->GetMemberName(pointee_type_inst->result_id(), idx);
+      name_str += ".";
+      name_str += utils::MakeString(member_name_inst->GetOperand(2).words);
+    }
+    // name_str += "[" + utils::ToString(idx) + "]";
+    printf("\t NEW name: %s\n", name_str.c_str());
 
     std::unique_ptr<Instruction> new_name(new Instruction(
         context(), SpvOpName, 0, 0,
@@ -267,6 +318,41 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
   }
 
   return id;
+}
+
+uint32_t DescriptorScalarReplacement::GetNumBindingsUsedByType(uint32_t type_id) {
+  Instruction* type_inst = get_def_use_mgr()->GetDef(type_id);
+
+  // If it's a pointer, look at the underlying type.
+  if(type_inst->opcode() == SpvOpTypePointer) {
+    type_id = type_inst->GetSingleWordInOperand(1);
+    type_inst = get_def_use_mgr()->GetDef(type_id);
+  }
+
+  // Arrays consume N*M binding numbers where N is the array length, and M is
+  // the number of bindings used by each array element.
+  if(type_inst->opcode() == SpvOpTypeArray) {
+    uint32_t element_type_id = type_inst->GetSingleWordInOperand(0);
+    uint32_t length_id = type_inst->GetSingleWordInOperand(1);
+    const analysis::Constant* length_const =
+        context()->get_constant_mgr()->FindDeclaredConstant(length_id);
+    // OpTypeArray's length must always be a constant
+    assert(length_const != nullptr);
+    uint32_t num_elems = length_const->GetU32();
+    return num_elems * GetNumBindingsUsedByType(element_type_id);
+  }
+
+  // Structures consume M binding numbers where M is the sum of binding numbers
+  // used by their members.
+  if(type_inst->opcode() == SpvOpTypeStruct) {
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < type_inst->NumInOperands(); i++)
+      sum += GetNumBindingsUsedByType(type_inst->GetSingleWordInOperand(i));
+    return sum;
+  }
+
+  // All other types are considered to take up 1 binding number.
+  return 1;
 }
 
 /// NOTES:

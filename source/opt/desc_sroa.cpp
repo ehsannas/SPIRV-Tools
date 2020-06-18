@@ -64,6 +64,17 @@ bool DescriptorScalarReplacement::IsCandidate(Instruction* var) {
     return false;
   }
 
+  // All structures with descriptor assignments must be replaced by variables,
+  // one for each of their members - with the exception of a structure that
+  // contains only a runtime array.
+  if (var_type_inst->opcode() == SpvOpTypeStruct) {
+    if (var_type_inst->NumInOperands() == 1) {
+      Instruction* member_type_inst = context()->get_def_use_mgr()->GetDef(
+          var_type_inst->GetSingleWordInOperand(0));
+      if (member_type_inst->opcode() == SpvOpTypeRuntimeArray) return false;
+    }
+  }
+
   bool has_desc_set_decoration = false;
   context()->get_decoration_mgr()->ForEachDecoration(
       var->result_id(), SpvDecorationDescriptorSet,
@@ -290,6 +301,7 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
   }
 
   // Create a new OpName for the replacement variable.
+  std::vector<std::unique_ptr<Instruction>> names_to_add;
   for (auto p : context()->GetNames(var->result_id())) {
     printf("Found names for var %d\n", var->result_id());
     Instruction* name_inst = p.second;
@@ -302,7 +314,10 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
       Instruction* member_name_inst =
           context()->GetMemberName(pointee_type_inst->result_id(), idx);
       name_str += ".";
-      name_str += utils::MakeString(member_name_inst->GetOperand(2).words);
+      if (member_name_inst)
+        name_str += utils::MakeString(member_name_inst->GetOperand(2).words);
+      else
+        name_str += utils::ToString(idx);
     }
     // name_str += "[" + utils::ToString(idx) + "]";
     printf("\t NEW name: %s\n", name_str.c_str());
@@ -313,9 +328,14 @@ uint32_t DescriptorScalarReplacement::CreateReplacementVariable(
             {SPV_OPERAND_TYPE_ID, {id}},
             {SPV_OPERAND_TYPE_LITERAL_STRING, utils::MakeVector(name_str)}}));
     Instruction* new_name_inst = new_name.get();
-    context()->AddDebug2Inst(std::move(new_name));
     get_def_use_mgr()->AnalyzeInstDefUse(new_name_inst);
+    names_to_add.push_back(std::move(new_name));
   }
+
+  // We shouldn't add the new names when we are iterating over name ranges
+  // above. We can add all the new names now.
+  for (auto& new_name : names_to_add)
+    context()->AddDebug2Inst(std::move(new_name));
 
   return id;
 }

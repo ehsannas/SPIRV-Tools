@@ -1070,6 +1070,7 @@ void IRContext::AddDebug2Inst(std::unique_ptr<Instruction>&& d) {
     if (d->opcode() == SpvOpName || d->opcode() == SpvOpMemberName) {
       // OpName and OpMemberName do not have result-ids. The target of the
       // instruction is at InOperand index 0.
+      printf("inserting into id_to_name_ with key %d\n", d->GetSingleWordInOperand(0));
       id_to_name_->insert({d->GetSingleWordInOperand(0), d.get()});
     }
   }

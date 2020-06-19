@@ -61,6 +61,18 @@ class DescriptorScalarReplacement : public Pass {
   // |true| if successful.
   bool ReplaceAccessChain(Instruction* var, Instruction* use);
 
+  // Replaces the given compososite variable |var| loaded by OpLoad |value| with
+  // replacement variables, one for each component that's accessed in the
+  // shader. Assumes that |value| is only used by OpCompositeExtract
+  // instructions, one index at a time.
+  bool ReplaceLoadedValue(Instruction* var, Instruction* value);
+
+  // Replaces the given OpCompositeExtract |extract| and all of its references
+  // with a replacement variable. |var| is the variable with composite type
+  // whose value is being used by |extract|. Assumes that |extract| is
+  // extracting one index only.
+  bool ReplaceCompositeExtract(Instruction* var, Instruction* extract);
+
   // Returns the id of the variable that will be used to replace the |idx|th
   // element of |var|.  The variable is created if it has not already been
   // created.
